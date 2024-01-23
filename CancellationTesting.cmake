@@ -110,8 +110,6 @@ function (add_plugin_cancellation_test pluginTarget)
 		set (MTM_ARG_TEST_PREFIX "${pluginTarget}.Cancellation.${filename}.")
 	endif ()
 
-	cmake_path (GET MTM_ARG_REFERENCE_AUDIO EXTENSION extension)
-
 	cmake_path (ABSOLUTE_PATH MTM_ARG_REFERENCE_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
 	if (MTM_ARG_INPUT_MIDI)
@@ -151,9 +149,22 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	set (base_dir "${CMAKE_CURRENT_BINARY_DIR}/cancellation")
 
+	# dummy set up test to create output directory
+
+	set (setup_test "${MTM_ARG_TEST_PREFIX}Prepare")
+
+	add_test (
+		NAME "${setup_test}"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${base_dir}/generated-audio/$<CONFIG>"
+	)
+
+	set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
+
 	# create render test
 
-	set (generated_audio "${base_dir}/generated-audio/$<CONFIG>/${filename}.${extension}")
+	cmake_path (GET MTM_ARG_REFERENCE_AUDIO EXTENSION extension)
+
+	set (generated_audio "${base_dir}/generated-audio/$<CONFIG>/${filename}${extension}")
 
 	get_target_property (plugin_artefact "${pluginTarget}" JUCE_PLUGIN_ARTEFACT_FILE)
 
@@ -176,6 +187,7 @@ function (add_plugin_cancellation_test pluginTarget)
 			REQUIRED_FILES "${MTM_ARG_INPUT_AUDIO};${plugin_artefact}"
 			ATTACHED_FILES "${generated_audio};${MTM_ARG_REFERENCE_AUDIO}"
 			FIXTURES_SETUP "${process_test}"
+			FIXTURES_REQUIRED "${setup_test}"
 	)
 	# cmake-format: on
 

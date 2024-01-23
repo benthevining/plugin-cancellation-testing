@@ -22,13 +22,15 @@ FetchContent_Declare (
 	FIND_PACKAGE_ARGS 7.0.9
 )
 
+FetchContent_MakeAvailable (JUCE)
+
 include ("${CMAKE_CURRENT_LIST_DIR}/CancellationTesting.cmake")
 
 juce_add_console_app (audio-diff)
 
 target_link_libraries (audio-diff PRIVATE juce::juce_audio_formats)
 
-target_sources (audio-diff PRIVATE main.cpp)
+target_sources (audio-diff PRIVATE audio-diff.cpp)
 
 add_executable (cancellation::audio_diff ALIAS audio-diff)
 
@@ -74,3 +76,5 @@ cpack_add_component (
 	DISPLAY_NAME "Audio cancellation testing code"
 	DESCRIPTION "Code for audio cancellation testing of plugins (development component)"
 )
+
+add_subdirectory (test)
