@@ -182,9 +182,9 @@ function (add_plugin_cancellation_test pluginTarget)
 			"${MTM_ARG_EXTERNAL_DATA_TARGET}" 
 			MTM_ARG_REFERENCE_AUDIO "${MTM_ARG_REFERENCE_AUDIO}"
 		)
-	else()
-		cmake_path (ABSOLUTE_PATH MTM_ARG_REFERENCE_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 	endif()
+
+	cmake_path (ABSOLUTE_PATH MTM_ARG_REFERENCE_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
 	cmake_path (GET MTM_ARG_REFERENCE_AUDIO STEM filename)
 
@@ -217,9 +217,9 @@ function (add_plugin_cancellation_test pluginTarget)
 				"${MTM_ARG_EXTERNAL_DATA_TARGET}"
 				MTM_ARG_INPUT_MIDI "${MTM_ARG_INPUT_MIDI}"
 			)
-		else()
-			cmake_path (ABSOLUTE_PATH MTM_ARG_INPUT_MIDI BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 		endif()
+
+		cmake_path (ABSOLUTE_PATH MTM_ARG_INPUT_MIDI BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
 		set (midi_input_arg "--midiInput=${MTM_ARG_INPUT_MIDI}")
 	else ()
@@ -232,9 +232,9 @@ function (add_plugin_cancellation_test pluginTarget)
 				"${MTM_ARG_EXTERNAL_DATA_TARGET}"
 				MTM_ARG_STATE_FILE "${MTM_ARG_STATE_FILE}"
 			)
-		else()	
-			cmake_path (ABSOLUTE_PATH MTM_ARG_STATE_FILE BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 		endif()
+
+		cmake_path (ABSOLUTE_PATH MTM_ARG_STATE_FILE BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
 		set (param_file_arg "--paramFile=${MTM_ARG_STATE_FILE}")
 	else ()
@@ -256,9 +256,9 @@ function (add_plugin_cancellation_test pluginTarget)
 				"${MTM_ARG_EXTERNAL_DATA_TARGET}"
 				input "${input}"
 			)
-		else()
-			cmake_path (ABSOLUTE_PATH input BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 		endif()
+
+		cmake_path (ABSOLUTE_PATH input BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
 		list (APPEND input_audio_args "--input=${input}")
 		list (APPEND input_audio_files "${input}")
@@ -349,6 +349,12 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	set (update_reference_output "${MTM_ARG_TEST_PREFIX}${filename}_regenerate")
 
+	if(MTM_ARG_EXTERNAL_DATA_TARGET)
+		set (data_depend "${MTM_ARG_EXTERNAL_DATA_TARGET}")
+	else()
+		unset (data_depend)
+	endif()
+
 	add_custom_command (
 		OUTPUT "${update_reference_output}"
 		COMMAND
@@ -357,7 +363,7 @@ function (add_plugin_cancellation_test pluginTarget)
 			${input_audio_args} ${midi_input_arg}
 			"--output=${MTM_ARG_REFERENCE_AUDIO}" --overwrite
 			${blocksize_arg} ${explicit_param_args} ${param_file_arg}
-		DEPENDS "${pluginTarget}" ${input_audio_files} ${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE}
+		DEPENDS "${pluginTarget}" ${input_audio_files} ${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE} ${data_depend}
 		COMMENT "Regenerating reference audio file '${filename}' for plugin cancellation test ${MTM_ARG_TEST_PREFIX}..."
 		VERBATIM COMMAND_EXPAND_LISTS
 	)
