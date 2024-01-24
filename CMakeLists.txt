@@ -77,4 +77,8 @@ cpack_add_component (
 	DESCRIPTION "Code for audio cancellation testing of plugins (development component)"
 )
 
-add_subdirectory (test)
+option (CANCELLATION_BUILD_TESTS "Build the test suite of the plugin cancellation toolset" "${PROJECT_IS_TOP_LEVEL}")
+
+if(CANCELLATION_BUILD_TESTS)
+	add_subdirectory (test)
+endif()

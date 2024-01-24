@@ -16,6 +16,13 @@ add_plugin_cancellation_test (
 	INPUT_AUDIO FemaleOoh.wav
 	REFERENCE_AUDIO FemaleOoh.wav
 	EXACT
+	TEST_NAMES_OUT test_names
 )
+
+list (LENGTH test_names len)
+
+if(NOT "${len}" EQUAL 2)
+	message (FATAL_ERROR "TEST_NAMES_OUT returned a list of length ${len}")
+endif()
 
 add_cancellation_regeneration_target (CancellationTestRegen)
