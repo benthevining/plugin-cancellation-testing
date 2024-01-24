@@ -26,8 +26,10 @@ define_property (
 		[STATE_FILE <jsonFile>]
 		[PARAMS <name>:<value>[:n] <name>:<value>[:n] ...]
 		[BLOCKSIZE <size>]
+		[OUTPUT_DIR <directory>]
 		[TEST_PREFIX <prefix>]
 		[REGEN_TARGET <target>]
+		[TEST_NAMES_OUT <variable>]
 	)
 
 	Adds an audio cancellation test. The purpose of a cancellation test is to verify that a plugin, given the same
@@ -60,13 +62,20 @@ define_property (
 	https://github.com/CrushedPixel/Plugalyzer for more details about the file format. Non-automated parameter values
 	can also be set individually using the PARAMS keyword. For PARAMS, you can specify the parameter name or index.
 
+	OUTPUT_DIR defines where the generated audio files will be written. The files will actually be generated in a
+	build-configuration-specific subdirectory beneath OUTPUT_DIR. Defaults to ${CMAKE_CURRENT_BINARY_DIR}/cancellation-generated.
+
 	TEST_PREFIX defines a prefix for the test names, and defaults to <pluginTarget>.Cancellation.<ReferenceFileName>
 
 	REGEN_TARGET can be the name of a regeneration target (later added with add_cancellation_regeneration_target())
 	that will drive regeneration of the reference audio file using the supplied inputs. If not specified, the value of
 	the CANCELLATION_REGEN_TARGET directory property will be used, if set.
 
-	Relative paths for all input variables are evaluated relative to CMAKE_CURRENT_SOURCE_DIR.
+	TEST_NAMES_OUT can name a variable that will be populated in the calling scope with the names of the generated tests.
+	This will be a list of 2 values, since each cancellation test is implemented using a render command and a diff command.
+
+	Relative paths for all input variables are evaluated relative to CMAKE_CURRENT_SOURCE_DIR, except for OUTPUT_DIR,
+	which is evaluated relative to CMAKE_CURRENT_BINARY_DIR.
 ]]
 function (add_plugin_cancellation_test pluginTarget)
 
@@ -86,12 +95,14 @@ function (add_plugin_cancellation_test pluginTarget)
 		oneVal
 		BLOCKSIZE
 		INPUT_MIDI
+		OUTPUT_DIR
 		REFERENCE_AUDIO
 		REGEN_TARGET
 		RMS_THRESH
 		SIDECHAIN_INPUT
 		STATE_FILE
 		TEST_PREFIX
+		TEST_NAMES_OUT
 	)
 
 	set (
@@ -120,6 +131,12 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	# dummy set up test to create output directory
 
+	if(MTM_ARG_OUTPUT_DIR)
+		cmake_path (ABSOLUTE_PATH MTM_ARG_OUTPUT_DIR BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
+	else()
+		set (MTM_ARG_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cancellation-generated")
+	endif()
+
 	cmake_path (ABSOLUTE_PATH MTM_ARG_REFERENCE_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
 	cmake_path (GET MTM_ARG_REFERENCE_AUDIO STEM filename)
@@ -128,16 +145,22 @@ function (add_plugin_cancellation_test pluginTarget)
 		set (MTM_ARG_TEST_PREFIX "${pluginTarget}.Cancellation.${filename}.")
 	endif ()
 
-	set (base_dir "${CMAKE_CURRENT_BINARY_DIR}/cancellation-generated/$<CONFIG>")
+	set (base_dir "${MTM_ARG_OUTPUT_DIR}/$<CONFIG>")
 
-	set (setup_test "${MTM_ARG_TEST_PREFIX}Prepare")
+	# the setup test is named for the output directory and does not include the test prefix so
+	# that multiple cancellation tests using the same output directory can share one setup test
+	string (MD5 base_dir_hash "${base_dir}")
+	set (setup_test "Cancellation.Prepare.${base_dir_hash}")
 
-	add_test (
-		NAME "${setup_test}"
-		COMMAND "${CMAKE_COMMAND}" -E make_directory "${base_dir}"
-	)
+	if(NOT TEST "${setup_test}")
+		add_test (
+			NAME "${setup_test}"
+			COMMAND "${CMAKE_COMMAND}" -E make_directory "${base_dir}"
+		)
 
-	set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
+		set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
+		set_property (TEST "${setup_test}" APPEND PROPERTY LABELS Cancellation)
+	endif()
 
 	# create render test
 
@@ -162,10 +185,12 @@ function (add_plugin_cancellation_test pluginTarget)
 	endif ()
 
 	unset (input_audio_args)
+	unset (input_audio_files)
 
 	foreach(input IN LISTS MTM_ARG_INPUT_AUDIO)
 		cmake_path (ABSOLUTE_PATH input BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 		list (APPEND input_audio_args "--input=${input}")
+		list (APPEND input_audio_files)
 	endforeach()
 
 	unset (explicit_param_args)
@@ -180,7 +205,7 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	get_target_property (plugin_artefact "${pluginTarget}" JUCE_PLUGIN_ARTEFACT_FILE)
 
-	set (process_test "${MTM_ARG_TEST_PREFIX}Process")
+	set (process_test "${MTM_ARG_TEST_PREFIX}Render")
 
 	add_test (
 		NAME "${process_test}"
@@ -195,32 +220,27 @@ function (add_plugin_cancellation_test pluginTarget)
 	set_tests_properties (
 		"${process_test}"
 		PROPERTIES
+			FIXTURES_REQUIRED "${setup_test}"
 			REQUIRED_FILES "${plugin_artefact}"
 			FIXTURES_SETUP "${process_test}"
-			FIXTURES_REQUIRED "${setup_test}"
 	)
 
 	set_property (
 		TEST "${process_test}" APPEND 
 		PROPERTY REQUIRED_FILES
-		${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE}
+		${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE} ${input_audio_files}
 	)
-
-	foreach(input IN LISTS MTM_ARG_INPUT_AUDIO)
-		cmake_path (ABSOLUTE_PATH input BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-		set_property (
-			TEST "${process_test}" APPEND
-			PROPERTY 
-				REQUIRED_FILES "${input}"
-		)
-	endforeach()
 
 	# create diff test
 
 	set (diff_test "${MTM_ARG_TEST_PREFIX}Diff")
 
 	if (NOT MTM_ARG_RMS_THRESH)
-		set (MTM_ARG_RMS_THRESH 0.005)
+		if(MTM_ARG_EXACT)
+			set (MTM_ARG_RMS_THRESH 0.0)
+		else()
+			set (MTM_ARG_RMS_THRESH 0.005)
+		endif()
 	endif ()
 
 	add_test (NAME "${diff_test}"
@@ -232,11 +252,17 @@ function (add_plugin_cancellation_test pluginTarget)
 		"${diff_test}"
 		PROPERTIES
 			FIXTURES_REQUIRED "${process_test}"
-			ATTACHED_FILES "${MTM_ARG_REFERENCE_AUDIO};${generated_audio}"
 			REQUIRED_FILES "${MTM_ARG_REFERENCE_AUDIO};${generated_audio}"
+			ATTACHED_FILES "${MTM_ARG_REFERENCE_AUDIO};${generated_audio}"
 	)
 
 	set_property (TEST "${process_test}" "${diff_test}" APPEND PROPERTY LABELS Cancellation)
+
+	if(MTM_ARG_TEST_NAMES_OUT)
+		set ("${MTM_ARG_TEST_NAMES_OUT}" "${process_test};${diff_test}" PARENT_SCOPE)
+	endif()
+
+	set_property (DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${generated_audio}")
 
 	message (VERBOSE "Added plugin cancellation test ${MTM_ARG_TEST_PREFIX}")
 
@@ -260,7 +286,7 @@ function (add_plugin_cancellation_test pluginTarget)
 			${input_audio_args} ${midi_input_arg}
 			"--output=${MTM_ARG_REFERENCE_AUDIO}" --overwrite
 			${blocksize_arg} ${explicit_param_args} ${param_file_arg}
-		DEPENDS "${pluginTarget}" ${MTM_ARG_INPUT_AUDIO} ${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE}
+		DEPENDS "${pluginTarget}" ${input_audio_files} ${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE}
 		COMMENT "Regenerating reference audio file '${filename}' for plugin cancellation test ${MTM_ARG_TEST_PREFIX}..."
 		VERBATIM COMMAND_EXPAND_LISTS
 	)

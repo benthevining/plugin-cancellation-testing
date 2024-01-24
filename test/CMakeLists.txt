@@ -9,12 +9,13 @@ target_link_libraries (cancellation-test PRIVATE juce::juce_audio_processors)
 
 target_compile_definitions (cancellation-test PRIVATE JUCE_VST3_CAN_REPLACE_VST2=0)
 
+set_directory_properties (PROPERTIES CANCELLATION_REGEN_TARGET CancellationTestRegen)
+
 add_plugin_cancellation_test (
 	cancellation-test_VST3
 	INPUT_AUDIO FemaleOoh.wav
 	REFERENCE_AUDIO FemaleOoh.wav
 	EXACT
-	REGEN_TARGET CancellationTestRegen
 )
 
 add_cancellation_regeneration_target (CancellationTestRegen)
