@@ -42,6 +42,7 @@ define_property (
 		[STATE_FILE <jsonFile>]
 		[PARAMS <name>:<value>[:n] <name>:<value>[:n] ...]
 		[BLOCKSIZE <size>]
+		[SAMPLERATE <hz>]
 		[OUTPUT_DIR <directory>]
 		[TEST_PREFIX <prefix>]
 		[REGEN_TARGET <target>]
@@ -69,6 +70,8 @@ define_property (
 	You must specify either INPUT_AUDIO or INPUT_MIDI, or optionally both. If you specify multiple audio inputs, they
 	will be used as additional input buses (ie sidechains). The first audio input file named will be the main input
 	bus. If you specify no input audio and only input MIDI, it is implied that you are testing a VST instrument.
+
+	SAMPLERATE is a value in hz (ie 44100), and may only be specified if you do not specify any INPUT_AUDIO files.
 
 	RMS_THRESH determines how strict the test is; a value of 0 will require that the rendered audio is exactly the same
 	as the reference audio with no deviation, and a value of 1 would allow a completely different audio output to
@@ -130,6 +133,7 @@ function (add_plugin_cancellation_test pluginTarget)
 		REFERENCE_AUDIO
 		REGEN_TARGET
 		RMS_THRESH
+		SAMPLERATE
 		SIDECHAIN_INPUT
 		STATE_FILE
 		TEST_PREFIX
@@ -158,6 +162,10 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	if(MTM_ARG_RMS_THRESH AND MTM_ARG_EXACT)
 		message (FATAL_ERROR "RMS_THRESH and EXACT cannot both be specified")
+	endif()
+
+	if(MTM_ARG_SAMPLERATE AND MTM_ARG_INPUT_AUDIO)
+		message (FATAL_ERROR "SAMPLERATE and INPUT_AUDIO cannot both be specified")
 	endif()
 
 	if (NOT PLUGALYZER_PROGRAM)
@@ -261,6 +269,12 @@ function (add_plugin_cancellation_test pluginTarget)
 			unset (blocksize_arg)
 		endif ()
 
+		if(MTM_ARG_SAMPLERATE)
+			set (samplerate_arg "--sampleRate=${MTM_ARG_SAMPLERATE}")
+		else()
+			unset (samplerate_arg)
+		endif()
+
 		unset (input_audio_args)
 		unset (input_audio_files)
 
@@ -289,7 +303,8 @@ function (add_plugin_cancellation_test pluginTarget)
 			"--plugin=${plugin_artefact}"
 			--overwrite
 			${input_audio_args} ${midi_input_arg}
-			${blocksize_arg} ${explicit_param_args} ${param_file_arg}
+			${blocksize_arg} ${samplerate_arg}
+			${explicit_param_args} ${param_file_arg}
 		)
 
 	endblock()
