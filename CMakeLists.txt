@@ -75,6 +75,7 @@ cpack_add_component (
 	plugin-cancellation 
 	DISPLAY_NAME "Audio cancellation testing code"
 	DESCRIPTION "Code for audio cancellation testing of plugins (development component)"
+	INSTALL_TYPES Developer
 )
 
 option (CANCELLATION_BUILD_TESTS "Build the test suite of the plugin cancellation toolset" "${PROJECT_IS_TOP_LEVEL}")

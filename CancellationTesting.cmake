@@ -23,6 +23,15 @@ define_property (
 		"Generated audio files for all cancellation tests in this directory will be written to this output directory."
 )
 
+define_property (
+	DIRECTORY
+	PROPERTY CANCELLATION_EXTERNAL_DATA_TARGET
+	INHERITED
+	BRIEF_DOCS "Name of ExternalData target that all cancellation tests in this directory will reference"
+	FULL_DOCS
+		"All cancellation tests in this directory will use the named ExternalData target for resolving DATA{} references in input arguments."
+)
+
 #[[
 	add_plugin_cancellation_test (
 		<pluginTarget>
@@ -36,6 +45,7 @@ define_property (
 		[OUTPUT_DIR <directory>]
 		[TEST_PREFIX <prefix>]
 		[REGEN_TARGET <target>]
+		[EXTERNAL_DATA_TARGET <target>]
 		[TEST_NAMES_OUT <variable>]
 	)
 
@@ -79,6 +89,10 @@ define_property (
 	that will drive regeneration of the reference audio file using the supplied inputs. If not specified, the value of
 	the CANCELLATION_REGEN_TARGET directory property will be used, if set.
 
+	EXTERNAL_DATA_TARGET can be the name of an ExternalData data management target. If EXTERNAL_DATA_TARGET is specified,
+	then you can use ExternalData's DATA{} syntax in the arguments REFERENCE_AUDIO, INPUT_AUDIO, INPUT_MIDI and STATE_FILE.
+	If not specified, defaults to the value of the CANCELLATION_EXTERNAL_DATA_TARGET directory property, if set.
+
 	TEST_NAMES_OUT can name a variable that will be populated in the calling scope with the names of the generated tests.
 	This will be a list of 2 values, since each cancellation test is implemented using a render command and a diff command.
 
@@ -102,6 +116,7 @@ function (add_plugin_cancellation_test pluginTarget)
 	set (
 		oneVal
 		BLOCKSIZE
+		EXTERNAL_DATA_TARGET
 		INPUT_MIDI
 		OUTPUT_DIR
 		REFERENCE_AUDIO
@@ -140,6 +155,14 @@ function (add_plugin_cancellation_test pluginTarget)
 		return ()
 	endif ()
 
+	if(NOT MTM_ARG_EXTERNAL_DATA_TARGET)
+		get_directory_property (MTM_ARG_EXTERNAL_DATA_TARGET CANCELLATION_EXTERNAL_DATA_TARGET)
+	endif()
+
+	if(MTM_ARG_EXTERNAL_DATA_TARGET)
+		include (ExternalData)
+	endif()
+
 	# dummy set up test to create output directory
 
 	if(MTM_ARG_OUTPUT_DIR)
@@ -154,7 +177,14 @@ function (add_plugin_cancellation_test pluginTarget)
 		endif()
 	endif()
 
-	cmake_path (ABSOLUTE_PATH MTM_ARG_REFERENCE_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+	if(MTM_ARG_EXTERNAL_DATA_TARGET)
+		ExternalData_Expand_Arguments (
+			"${MTM_ARG_EXTERNAL_DATA_TARGET}" 
+			MTM_ARG_REFERENCE_AUDIO "${MTM_ARG_REFERENCE_AUDIO}"
+		)
+	else()
+		cmake_path (ABSOLUTE_PATH MTM_ARG_REFERENCE_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+	endif()
 
 	cmake_path (GET MTM_ARG_REFERENCE_AUDIO STEM filename)
 
@@ -182,14 +212,30 @@ function (add_plugin_cancellation_test pluginTarget)
 	# create render test
 
 	if (MTM_ARG_INPUT_MIDI)
-		cmake_path (ABSOLUTE_PATH MTM_ARG_INPUT_MIDI BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+		if(MTM_ARG_EXTERNAL_DATA_TARGET)
+			ExternalData_Expand_Arguments (
+				"${MTM_ARG_EXTERNAL_DATA_TARGET}"
+				MTM_ARG_INPUT_MIDI "${MTM_ARG_INPUT_MIDI}"
+			)
+		else()
+			cmake_path (ABSOLUTE_PATH MTM_ARG_INPUT_MIDI BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+		endif()
+
 		set (midi_input_arg "--midiInput=${MTM_ARG_INPUT_MIDI}")
 	else ()
 		unset (midi_input_arg)
 	endif ()
 
 	if (MTM_ARG_STATE_FILE)
-		cmake_path (ABSOLUTE_PATH MTM_ARG_STATE_FILE BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+		if(MTM_ARG_EXTERNAL_DATA_TARGET)
+			ExternalData_Expand_Arguments (
+				"${MTM_ARG_EXTERNAL_DATA_TARGET}"
+				MTM_ARG_STATE_FILE "${MTM_ARG_STATE_FILE}"
+			)
+		else()	
+			cmake_path (ABSOLUTE_PATH MTM_ARG_STATE_FILE BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+		endif()
+
 		set (param_file_arg "--paramFile=${MTM_ARG_STATE_FILE}")
 	else ()
 		unset (param_file_arg)
@@ -205,7 +251,15 @@ function (add_plugin_cancellation_test pluginTarget)
 	unset (input_audio_files)
 
 	foreach(input IN LISTS MTM_ARG_INPUT_AUDIO)
-		cmake_path (ABSOLUTE_PATH input BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+		if(MTM_ARG_EXTERNAL_DATA_TARGET)
+			ExternalData_Expand_Arguments (
+				"${MTM_ARG_EXTERNAL_DATA_TARGET}"
+				input "${input}"
+			)
+		else()
+			cmake_path (ABSOLUTE_PATH input BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+		endif()
+
 		list (APPEND input_audio_args "--input=${input}")
 		list (APPEND input_audio_files "${input}")
 	endforeach()
