@@ -20,12 +20,11 @@ define_property (
 	add_plugin_cancellation_test (
 		<pluginTarget>
 		REFERENCE_AUDIO <audioFile>
-		INPUT_AUDIO <audioFile>
-		[RMS_THRESH <thresh>]
+		[INPUT_AUDIO <audioFile>...]
+		[INPUT_MIDI <midiFile>]
+		[RMS_THRESH <thresh> | EXACT]
 		[STATE_FILE <jsonFile>]
 		[PARAMS <name>:<value>[:n] <name>:<value>[:n] ...]
-		[SIDECHAIN_INPUT <audioFile>]
-		[INPUT_MIDI <midiFile>]
 		[BLOCKSIZE <size>]
 		[TEST_PREFIX <prefix>]
 		[REGEN_TARGET <target>]
@@ -48,9 +47,14 @@ define_property (
 	also be set explicitly using the PLUGALYZER_PROGRAM variable. It can be built from source; the code is available
 	from https://github.com/CrushedPixel/Plugalyzer.
 
+	You must specify either INPUT_AUDIO or INPUT_MIDI, or optionally both. If you specify multiple audio inputs, they
+	will be used as additional input buses (ie sidechains). The first audio input file named will be the main input
+	bus. If you specify no input audio and only input MIDI, it is implied that you are testing a VST instrument.
+
 	RMS_THRESH determines how strict the test is; a value of 0 will require that the rendered audio is exactly the same
 	as the reference audio with no deviation, and a value of 1 would allow a completely different audio output to
 	"pass" the cancellation test. RMS threshold values may require tuning on a per-cancellation-test basis over time.
+	EXACT is a shorthand for passing RMS_THRESH 0, and it is an error to specify both EXACT and an RMS_THRESH value.
 
 	STATE_FILE is a JSON file containing parameter values, and can even describe parameter automations; see
 	https://github.com/CrushedPixel/Plugalyzer for more details about the file format. Non-automated parameter values
@@ -66,21 +70,21 @@ define_property (
 ]]
 function (add_plugin_cancellation_test pluginTarget)
 
+	list (APPEND CMAKE_MESSAGE_INDENT "  - ${CMAKE_CURRENT_FUNCTION}: ")
+
 	if (NOT TARGET "${pluginTarget}")
-		message (
-			FATAL_ERROR "${CMAKE_CURRENT_FUNCTION} - plugin target '${pluginTarget}' does not exist!"
-		)
+		message (FATAL_ERROR "Plugin target '${pluginTarget}' does not exist!")
 	endif ()
 
-	if (NOT PLUGALYZER_PROGRAM)
-		return ()
-	endif ()
+	# argument parsing & validating
+
+	set (options
+		EXACT
+	)
 
 	set (
 		oneVal
-		# cmake-format: sortable
 		BLOCKSIZE
-		INPUT_AUDIO
 		INPUT_MIDI
 		REFERENCE_AUDIO
 		REGEN_TARGET
@@ -90,19 +94,33 @@ function (add_plugin_cancellation_test pluginTarget)
 		TEST_PREFIX
 	)
 
-	cmake_parse_arguments (MTM_ARG "" "${oneVal}" "PARAMS" ${ARGN})
+	set (
+		multiVal
+		INPUT_AUDIO
+		PARAMS
+	)
 
-	if (NOT MTM_ARG_INPUT_AUDIO)
-		message (FATAL_ERROR "${CMAKE_CURRENT_FUNCTION} - missing required argument INPUT_AUDIO")
+	cmake_parse_arguments (MTM_ARG "${options}" "${oneVal}" "${multiVal}" ${ARGN})
+
+	if (NOT (MTM_ARG_INPUT_AUDIO OR MTM_ARG_INPUT_MIDI))
+		message (FATAL_ERROR "You must specify either INPUT_AUDIO or INPUT_MIDI")
 	endif ()
-
-	cmake_path (ABSOLUTE_PATH MTM_ARG_INPUT_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
 	if (NOT MTM_ARG_REFERENCE_AUDIO)
-		message (
-			FATAL_ERROR "${CMAKE_CURRENT_FUNCTION} - missing required argument REFERENCE_AUDIO"
-		)
+		message (FATAL_ERROR "Missing required argument REFERENCE_AUDIO")
 	endif ()
+
+	if(MTM_ARG_RMS_THRESH AND MTM_ARG_EXACT)
+		message (FATAL_ERROR "RMS_THRESH and EXACT cannot both be specified")
+	endif()
+
+	if (NOT PLUGALYZER_PROGRAM)
+		return ()
+	endif ()
+
+	# dummy set up test to create output directory
+
+	cmake_path (ABSOLUTE_PATH MTM_ARG_REFERENCE_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 
 	cmake_path (GET MTM_ARG_REFERENCE_AUDIO STEM filename)
 
@@ -110,7 +128,18 @@ function (add_plugin_cancellation_test pluginTarget)
 		set (MTM_ARG_TEST_PREFIX "${pluginTarget}.Cancellation.${filename}.")
 	endif ()
 
-	cmake_path (ABSOLUTE_PATH MTM_ARG_REFERENCE_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+	set (base_dir "${CMAKE_CURRENT_BINARY_DIR}/cancellation-generated/$<CONFIG>")
+
+	set (setup_test "${MTM_ARG_TEST_PREFIX}Prepare")
+
+	add_test (
+		NAME "${setup_test}"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${base_dir}"
+	)
+
+	set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
+
+	# create render test
 
 	if (MTM_ARG_INPUT_MIDI)
 		cmake_path (ABSOLUTE_PATH MTM_ARG_INPUT_MIDI BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
@@ -132,14 +161,12 @@ function (add_plugin_cancellation_test pluginTarget)
 		unset (blocksize_arg)
 	endif ()
 
-	if (MTM_ARG_SIDECHAIN_INPUT)
-		cmake_path (
-			ABSOLUTE_PATH MTM_ARG_SIDECHAIN_INPUT BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}"
-		)
-		set (sidechain_input_arg "--input=${MTM_ARG_SIDECHAIN_INPUT}")
-	else ()
-		unset (sidechain_input_arg)
-	endif ()
+	unset (input_audio_args)
+
+	foreach(input IN LISTS MTM_ARG_INPUT_AUDIO)
+		cmake_path (ABSOLUTE_PATH input BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+		list (APPEND input_audio_args "--input=${input}")
+	endforeach()
 
 	unset (explicit_param_args)
 
@@ -147,63 +174,46 @@ function (add_plugin_cancellation_test pluginTarget)
 		list (APPEND explicit_param_args "--param=${param_arg}")
 	endforeach ()
 
-	set (base_dir "${CMAKE_CURRENT_BINARY_DIR}/cancellation")
-
-	# dummy set up test to create output directory
-
-	set (setup_test "${MTM_ARG_TEST_PREFIX}Prepare")
-
-	add_test (
-		NAME "${setup_test}"
-		COMMAND "${CMAKE_COMMAND}" -E make_directory "${base_dir}/generated-audio/$<CONFIG>"
-	)
-
-	set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
-
-	# create render test
-
 	cmake_path (GET MTM_ARG_REFERENCE_AUDIO EXTENSION extension)
 
-	set (generated_audio "${base_dir}/generated-audio/$<CONFIG>/${filename}${extension}")
+	set (generated_audio "${base_dir}/${filename}${extension}")
 
 	get_target_property (plugin_artefact "${pluginTarget}" JUCE_PLUGIN_ARTEFACT_FILE)
 
 	set (process_test "${MTM_ARG_TEST_PREFIX}Process")
 
-	# cmake-format: off
 	add_test (
 		NAME "${process_test}"
 		COMMAND
 			"${PLUGALYZER_PROGRAM}" process
 			"--plugin=${plugin_artefact}"
-			"--input=${MTM_ARG_INPUT_AUDIO}" ${sidechain_input_arg}
+			${input_audio_args} ${midi_input_arg}
 			"--output=${generated_audio}" --overwrite
-			${midi_input_arg} ${blocksize_arg} ${explicit_param_args} ${param_file_arg}
+			${blocksize_arg} ${explicit_param_args} ${param_file_arg}
 	)
 
 	set_tests_properties (
 		"${process_test}"
 		PROPERTIES
-			REQUIRED_FILES "${MTM_ARG_INPUT_AUDIO};${plugin_artefact}"
-			ATTACHED_FILES "${generated_audio};${MTM_ARG_REFERENCE_AUDIO}"
+			REQUIRED_FILES "${plugin_artefact}"
 			FIXTURES_SETUP "${process_test}"
 			FIXTURES_REQUIRED "${setup_test}"
 	)
-	# cmake-format: on
 
-	if (MTM_ARG_SIDECHAIN_INPUT)
+	set_property (
+		TEST "${process_test}" APPEND 
+		PROPERTY REQUIRED_FILES
+		${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE}
+	)
+
+	foreach(input IN LISTS MTM_ARG_INPUT_AUDIO)
+		cmake_path (ABSOLUTE_PATH input BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 		set_property (
-			TEST "${process_test}" APPEND PROPERTY REQUIRED_FILES "${MTM_ARG_SIDECHAIN_INPUT}"
+			TEST "${process_test}" APPEND
+			PROPERTY 
+				REQUIRED_FILES "${input}"
 		)
-	endif ()
-
-	if (MTM_ARG_INPUT_MIDI)
-		set_property (TEST "${process_test}" APPEND PROPERTY REQUIRED_FILES "${MTM_ARG_INPUT_MIDI}")
-	endif ()
-
-	if (MTM_ARG_STATE_FILE)
-		set_property (TEST "${process_test}" APPEND PROPERTY REQUIRED_FILES "${MTM_ARG_STATE_FILE}")
-	endif ()
+	endforeach()
 
 	# create diff test
 
@@ -213,7 +223,6 @@ function (add_plugin_cancellation_test pluginTarget)
 		set (MTM_ARG_RMS_THRESH 0.005)
 	endif ()
 
-	# cmake-format: off
 	add_test (NAME "${diff_test}"
 			  COMMAND cancellation::audio_diff
 					  "${MTM_ARG_REFERENCE_AUDIO}" "${generated_audio}" "${MTM_ARG_RMS_THRESH}"
@@ -223,14 +232,13 @@ function (add_plugin_cancellation_test pluginTarget)
 		"${diff_test}"
 		PROPERTIES
 			FIXTURES_REQUIRED "${process_test}"
-			ATTACHED_FILES "${generated_audio};${MTM_ARG_REFERENCE_AUDIO}"
+			ATTACHED_FILES "${MTM_ARG_REFERENCE_AUDIO};${generated_audio}"
 			REQUIRED_FILES "${MTM_ARG_REFERENCE_AUDIO};${generated_audio}"
 	)
-	# cmake-format: on
 
 	set_property (TEST "${process_test}" "${diff_test}" APPEND PROPERTY LABELS Cancellation)
 
-	set_property (DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${base_dir}")
+	message (VERBOSE "Added plugin cancellation test ${MTM_ARG_TEST_PREFIX}")
 
 	# create regen command
 
@@ -244,44 +252,38 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	set (update_reference_output "${MTM_ARG_TEST_PREFIX}${filename}_regenerate")
 
-	if (MTM_ARG_SIDECHAIN_INPUT)
-		set (sidechain_depend "${MTM_ARG_SIDECHAIN_INPUT}")
-	else ()
-		unset (sidechain_depend)
-	endif ()
-
-	if (MTM_ARG_INPUT_MIDI)
-		set (midi_depend "${MTM_ARG_INPUT_MIDI}")
-	else ()
-		unset (midi_depend)
-	endif ()
-
-	if (MTM_ARG_STATE_FILE)
-		set (state_depend "${MTM_ARG_STATE_FILE}")
-	else ()
-		unset (state_depend)
-	endif ()
-
-	# cmake-format: off
 	add_custom_command (
 		OUTPUT "${update_reference_output}"
 		COMMAND
 			"${PLUGALYZER_PROGRAM}" process
 			"--plugin=${plugin_artefact}"
-			"--input=${MTM_ARG_INPUT_AUDIO}" ${sidechain_input_arg}
+			${input_audio_args} ${midi_input_arg}
 			"--output=${MTM_ARG_REFERENCE_AUDIO}" --overwrite
-			${midi_input_arg} ${blocksize_arg} ${explicit_param_args} ${param_file_arg}
-		DEPENDS "${pluginTarget}" "${MTM_ARG_INPUT_AUDIO}" ${sidechain_depend} ${midi_depend} ${state_depend}
+			${blocksize_arg} ${explicit_param_args} ${param_file_arg}
+		DEPENDS "${pluginTarget}" ${MTM_ARG_INPUT_AUDIO} ${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE}
 		COMMENT "Regenerating reference audio file '${filename}' for plugin cancellation test ${MTM_ARG_TEST_PREFIX}..."
 		VERBATIM COMMAND_EXPAND_LISTS
 	)
-	# cmake-format: on
 
 	set_source_files_properties ("${update_reference_output}" PROPERTIES SYMBOLIC ON)
 
+	set (property_name "${MTM_ARG_REGEN_TARGET}_SymbolicRegenOutputs")
+
+	# to silence warnings about writing to undefined properties
+	define_property (
+		DIRECTORY
+		PROPERTY "${property_name}"
+		FULL_DOCS 
+			"List of symbolic outputs used to create reference file regeneration custom target later in this directory. For internal usage."
+	)
+
 	set_property (
-		DIRECTORY APPEND PROPERTY "${MTM_ARG_REGEN_TARGET}_SymbolicRegenOutputs"
-								  "${update_reference_output}"
+		DIRECTORY APPEND PROPERTY "${property_name}" "${update_reference_output}"
+	)
+
+	message (VERBOSE 
+		"Added reference file regeneration command for plugin cancellation test ${MTM_ARG_TEST_PREFIX}"
+		" (regeneration target name: ${MTM_ARG_REGEN_TARGET})"
 	)
 
 endfunction ()
@@ -306,24 +308,26 @@ function (add_cancellation_regeneration_target regenerationTarget)
 		return ()
 	endif ()
 
+	list (APPEND CMAKE_MESSAGE_INDENT "  - ${CMAKE_CURRENT_FUNCTION}: ")
+
 	get_directory_property (outputs "${regenerationTarget}_SymbolicRegenOutputs")
 
 	if (NOT outputs)
 		message (
 			WARNING
-				"${CMAKE_CURRENT_FUNCTION}: No reference file outputs found for regeneration target ${regenerationTarget}."
+				"No reference file outputs found for regeneration target ${regenerationTarget}."
 				" Make sure you've called mtm_add_plugin_cancellation_test() first, and in the same directory as ${CMAKE_CURRENT_FUNCTION}."
 		)
 		return ()
 	endif ()
 
-	# cmake-format: off
 	add_custom_target (
 		"${regenerationTarget}"
 		DEPENDS ${outputs}
 		COMMENT "Regenerating cancellation test reference audio files..."
 		VERBATIM
 	)
-	# cmake-format: on
+
+	message (VERBOSE "Added reference file regeneration target ${regenerationTarget}")
 
 endfunction ()

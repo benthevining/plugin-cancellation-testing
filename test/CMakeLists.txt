@@ -13,7 +13,7 @@ add_plugin_cancellation_test (
 	cancellation-test_VST3
 	INPUT_AUDIO FemaleOoh.wav
 	REFERENCE_AUDIO FemaleOoh.wav
-	RMS_THRESH 0
+	EXACT
 	REGEN_TARGET CancellationTestRegen
 )
 
