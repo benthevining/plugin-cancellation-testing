@@ -13,8 +13,9 @@ set_directory_properties (PROPERTIES CANCELLATION_REGEN_TARGET CancellationTestR
 
 add_plugin_cancellation_test (
 	cancellation-test_VST3
-	INPUT_AUDIO FemaleOoh.wav
-	REFERENCE_AUDIO FemaleOoh.wav
+	INPUT_AUDIO input.wav
+	REFERENCE_AUDIO output.wav
+	PARAMS "Gain:0.5"
 	EXACT
 	TEST_NAMES_OUT test_names
 )

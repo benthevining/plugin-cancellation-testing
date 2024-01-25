@@ -3,6 +3,14 @@
 class PassThroughPlugin final : public juce::AudioProcessor
 {
 public:
+	PassThroughPlugin()
+	{
+		addParameter (gainParam = new juce::AudioParameterFloat (juce::ParameterID { "Gain", 1 },
+																 "Gain",
+																 juce::NormalisableRange<float>{ 0.f, 1.f },
+																 1.f));
+	}
+
 private:
 	using String = juce::String;
 
@@ -13,7 +21,9 @@ private:
 	void releaseResources() final {}
 
 	void processBlock (juce::AudioBuffer<float>& buffer, juce::MidiBuffer&) final 
-	{ }
+	{
+		buffer.applyGain (gainParam->get());
+	}
 
 	double getTailLengthSeconds() const final { return 0.; }
 
@@ -40,6 +50,8 @@ private:
 	void getStateInformation (juce::MemoryBlock&) final {}
 
 	void setStateInformation (const void*, int) final {}
+
+	juce::AudioParameterFloat* gainParam;
 };
 
 juce::AudioProcessor* JUCE_CALLTYPE createPluginFilter()

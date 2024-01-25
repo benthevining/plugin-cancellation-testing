@@ -111,7 +111,8 @@ endmacro()
 
 	EXTERNAL_DATA_TARGET can be the name of an ExternalData data management target. If EXTERNAL_DATA_TARGET is specified,
 	then you can use ExternalData's DATA{} syntax in the arguments REFERENCE_AUDIO, INPUT_AUDIO, INPUT_MIDI and STATE_FILE.
-	If not specified, defaults to the value of the CANCELLATION_EXTERNAL_DATA_TARGET directory property, if set.
+	If not specified, defaults to the value of the CANCELLATION_EXTERNAL_DATA_TARGET directory property, if set. Has no effect
+	if no DATA{} references are found in the input arguments.
 
 	TEST_NAMES_OUT can name a variable that will be populated in the calling scope with the names of the generated tests.
 	This will be a list of 2 values, since each cancellation test is implemented using a render command and a diff command.
