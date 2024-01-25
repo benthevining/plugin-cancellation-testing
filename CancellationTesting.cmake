@@ -137,6 +137,9 @@ endmacro()
 	Relative paths for all input variables are evaluated relative to CMAKE_CURRENT_SOURCE_DIR, except for OUTPUT_DIR,
 	which is evaluated relative to CMAKE_CURRENT_BINARY_DIR.
 
+	The arguments REFERENCE_AUDIO, INPUT_AUDIO, INPUT_MIDI, STATE_FILE and OUTPUT_DIR support generator expressions. A 
+	particularly useful one is $<CONFIG>, to use configuration-specific reference files.
+
 	Directory properties:
 		- CANCELLATION_REGEN_TARGET
 		- CANCELLATION_OUTPUT_DIR
