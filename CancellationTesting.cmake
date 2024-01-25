@@ -42,7 +42,14 @@ define_property (
 		"All cancellation tests in this directory will be enabled only for the build configurations listed in this property."
 )
 
+macro(__pct_replace_tokens variable)
+	get_target_property (__format_string "${pluginTarget}" JUCE_TARGET_KIND_STRING)
+	string (REPLACE "<FORMAT>" "${__format_string}" "${variable}" "${${variable}}")
+endmacro()
+
 macro(__pct_resolve_var_path variable)
+	__pct_replace_tokens ("${variable}")
+
 	if(MTM_ARG_EXTERNAL_DATA_TARGET)
 		string (FIND "${${variable}}" "DATA{" __data_found)
 
@@ -138,7 +145,8 @@ endmacro()
 	which is evaluated relative to CMAKE_CURRENT_BINARY_DIR.
 
 	The arguments REFERENCE_AUDIO, INPUT_AUDIO, INPUT_MIDI, STATE_FILE and OUTPUT_DIR support generator expressions. A 
-	particularly useful one is $<CONFIG>, to use configuration-specific reference files.
+	particularly useful one is $<CONFIG>, to use configuration-specific reference files. In these arguments, the literal
+	string <FORMAT> will also be replaced with the name of the plugin format of <pluginTarget>.
 
 	Directory properties:
 		- CANCELLATION_REGEN_TARGET
@@ -246,6 +254,7 @@ function (add_plugin_cancellation_test pluginTarget)
 	endif()
 
 	if(MTM_ARG_OUTPUT_DIR)
+		__pct_replace_tokens (MTM_ARG_OUTPUT_DIR)
 		cmake_path (ABSOLUTE_PATH MTM_ARG_OUTPUT_DIR BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 	else()
 		get_directory_property (MTM_ARG_OUTPUT_DIR CANCELLATION_OUTPUT_DIR)
@@ -304,6 +313,7 @@ function (add_plugin_cancellation_test pluginTarget)
 			add_test (
 				NAME "${setup_test}"
 				COMMAND "${CMAKE_COMMAND}" -E make_directory "${base_dir}"
+				COMMAND_EXPAND_LISTS
 				${test_config_args}
 			)
 
@@ -411,6 +421,7 @@ function (add_plugin_cancellation_test pluginTarget)
 		COMMAND
 			"${PLUGALYZER_PROGRAM}" process ${plugalyzer_args}
 			"--output=${generated_audio}"
+		COMMAND_EXPAND_LISTS
 		${test_config_args}
 	)
 
@@ -453,6 +464,7 @@ function (add_plugin_cancellation_test pluginTarget)
 	add_test (NAME "${diff_test}"
 			  COMMAND cancellation::audio_diff
 					  "${MTM_ARG_REFERENCE_AUDIO}" "${generated_audio}" "${MTM_ARG_RMS_THRESH}"
+			  COMMAND_EXPAND_LISTS
 			  ${test_config_args}
 	)
 
