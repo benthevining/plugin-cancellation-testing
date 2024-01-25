@@ -278,6 +278,10 @@ function (add_plugin_cancellation_test pluginTarget)
 		set (MTM_ARG_TEST_PREFIX "${pluginTarget}.Cancellation.${filename}.")
 	endif ()
 
+	if (NOT MTM_ARG_REGEN_TARGET)
+		get_directory_property (MTM_ARG_REGEN_TARGET CANCELLATION_REGEN_TARGET)
+	endif ()
+
 	set (base_dir "${MTM_ARG_OUTPUT_DIR}/$<CONFIG>")
 
 	list (POP_BACK CMAKE_MESSAGE_CONTEXT)
@@ -304,6 +308,21 @@ function (add_plugin_cancellation_test pluginTarget)
 			set_property (TEST "${setup_test}" APPEND PROPERTY LABELS Cancellation)
 
 			message (DEBUG "Created setup test to create output directory ${base_dir} (test name ${setup_test})")
+
+			if(MTM_ARG_REGEN_TARGET)
+				cmake_path (GET MTM_ARG_REFERENCE_AUDIO PARENT_PATH reference_dir)
+
+				add_custom_command (
+					OUTPUT "${setup_test}"
+					COMMAND "${CMAKE_COMMAND}" -E make_directory "${reference_dir}"
+					COMMENT "Creating reference files output directory..."
+					VERBATIM COMMAND_EXPAND_LISTS
+				)
+
+				set_source_files_properties ("${setup_test}" PROPERTIES SYMBOLIC ON)
+
+				message (DEBUG "Added command to create regen output directory")
+			endif()
 		endif()
 	endblock()
 
@@ -468,11 +487,7 @@ function (add_plugin_cancellation_test pluginTarget)
 	list (APPEND CMAKE_MESSAGE_CONTEXT "CreateRegenCommand")
 
 	if (NOT MTM_ARG_REGEN_TARGET)
-		get_directory_property (MTM_ARG_REGEN_TARGET CANCELLATION_REGEN_TARGET)
-
-		if (NOT MTM_ARG_REGEN_TARGET)
-			return ()
-		endif ()
+		return ()
 	endif ()
 
 	if(NOT TARGET "${MTM_ARG_REGEN_TARGET}")
@@ -508,9 +523,12 @@ function (add_plugin_cancellation_test pluginTarget)
 		COMMAND
 			"${PLUGALYZER_PROGRAM}" process ${plugalyzer_args}
 			"--output=${MTM_ARG_REFERENCE_AUDIO}"
-		DEPENDS "${pluginTarget}" ${input_audio_files} ${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE} ${data_depend}
+		DEPENDS 
+			"${pluginTarget}" "${setup_test}" ${input_audio_files} 
+			${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE} ${data_depend}
 		DEPENDS_EXPLICIT_ONLY
-		COMMENT "Regenerating reference audio file ${filename}${extension} for plugin cancellation test ${MTM_ARG_TEST_PREFIX}..."
+		COMMENT 
+			"Regenerating reference audio file ${filename}${extension} for plugin cancellation test ${MTM_ARG_TEST_PREFIX}..."
 		VERBATIM COMMAND_EXPAND_LISTS
 	)
 
