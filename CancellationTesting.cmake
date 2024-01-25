@@ -47,6 +47,8 @@ macro(__pct_resolve_var_path variable)
 	else()
 		cmake_path (ABSOLUTE_PATH "${variable}" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 	endif()
+
+	message (TRACE "Path variable ${variable} resolved to ${${variable}}")
 endmacro()
 
 #[[
@@ -197,7 +199,7 @@ function (add_plugin_cancellation_test pluginTarget)
 	endif()
 
 	if (NOT PLUGALYZER_PROGRAM)
-		message (VERBOSE 
+		message (WARNING 
 			"Cannot create cancellation tests because Plugalyzer was not found. Set PLUGALYZER_PROGRAM to its path."
 		)
 		return ()
@@ -209,6 +211,7 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	if(MTM_ARG_EXTERNAL_DATA_TARGET)
 		include (ExternalData)
+		message (VERBOSE "Using ExternalData target ${MTM_ARG_EXTERNAL_DATA_TARGET}")
 	endif()
 
 	if(MTM_ARG_OUTPUT_DIR)
@@ -223,6 +226,8 @@ function (add_plugin_cancellation_test pluginTarget)
 		endif()
 	endif()
 
+	message (VERBOSE "Output directory: ${MTM_ARG_OUTPUT_DIR}")
+
 	__pct_resolve_var_path (MTM_ARG_REFERENCE_AUDIO)
 
 	cmake_path (GET MTM_ARG_REFERENCE_AUDIO STEM filename)
@@ -230,6 +235,8 @@ function (add_plugin_cancellation_test pluginTarget)
 	if (NOT MTM_ARG_TEST_PREFIX)
 		set (MTM_ARG_TEST_PREFIX "${pluginTarget}.Cancellation.${filename}.")
 	endif ()
+
+	message (TRACE "Test prefix: ${MTM_ARG_TEST_PREFIX}")
 
 	set (base_dir "${MTM_ARG_OUTPUT_DIR}/$<CONFIG>")
 
@@ -248,61 +255,67 @@ function (add_plugin_cancellation_test pluginTarget)
 
 			set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
 			set_property (TEST "${setup_test}" APPEND PROPERTY LABELS Cancellation)
+
+			message (TRACE "Created setup test to create output directory ${base_dir} (test name ${setup_test})")
 		endif()
 	endblock()
 
 	# build plugalyzer command line
+	block (PROPAGATE plugalyzer_args MTM_ARG_INPUT_MIDI MTM_ARG_STATE_FILE input_audio_files)
+		if (MTM_ARG_INPUT_MIDI)
+			__pct_resolve_var_path (MTM_ARG_INPUT_MIDI)
+			set (midi_input_arg "--midiInput=${MTM_ARG_INPUT_MIDI}")
+		else ()
+			unset (midi_input_arg)
+		endif ()
 
-	if (MTM_ARG_INPUT_MIDI)
-		__pct_resolve_var_path (MTM_ARG_INPUT_MIDI)
-		set (midi_input_arg "--midiInput=${MTM_ARG_INPUT_MIDI}")
-	else ()
-		unset (midi_input_arg)
-	endif ()
+		if (MTM_ARG_STATE_FILE)
+			__pct_resolve_var_path (MTM_ARG_STATE_FILE)
+			set (param_file_arg "--paramFile=${MTM_ARG_STATE_FILE}")
+		else ()
+			unset (param_file_arg)
+		endif ()
 
-	if (MTM_ARG_STATE_FILE)
-		__pct_resolve_var_path (MTM_ARG_STATE_FILE)
-		set (param_file_arg "--paramFile=${MTM_ARG_STATE_FILE}")
-	else ()
-		unset (param_file_arg)
-	endif ()
+		if (MTM_ARG_BLOCKSIZE)
+			set (blocksize_arg "--blockSize=${MTM_ARG_BLOCKSIZE}")
+		else ()
+			unset (blocksize_arg)
+		endif ()
 
-	if (MTM_ARG_BLOCKSIZE)
-		set (blocksize_arg "--blockSize=${MTM_ARG_BLOCKSIZE}")
-	else ()
-		unset (blocksize_arg)
-	endif ()
+		if(MTM_ARG_SAMPLERATE)
+			set (samplerate_arg "--sampleRate=${MTM_ARG_SAMPLERATE}")
+		else()
+			unset (samplerate_arg)
+		endif()
 
-	if(MTM_ARG_SAMPLERATE)
-		set (samplerate_arg "--sampleRate=${MTM_ARG_SAMPLERATE}")
-	else()
-		unset (samplerate_arg)
-	endif()
+		unset (input_audio_args)
+		unset (input_audio_files)
 
-	unset (input_audio_args)
-	unset (input_audio_files)
+		foreach(input IN LISTS MTM_ARG_INPUT_AUDIO)
+			__pct_resolve_var_path (input)
 
-	foreach(input IN LISTS MTM_ARG_INPUT_AUDIO)
-		__pct_resolve_var_path (input)
+			list (APPEND input_audio_args "--input=${input}")
+			list (APPEND input_audio_files "${input}")
+		endforeach()
 
-		list (APPEND input_audio_args "--input=${input}")
-		list (APPEND input_audio_files "${input}")
-	endforeach()
+		unset (explicit_param_args)
 
-	unset (explicit_param_args)
+		foreach (param_arg IN LISTS MTM_ARG_PARAMS)
+			list (APPEND explicit_param_args "--param=${param_arg}")
+		endforeach ()
 
-	foreach (param_arg IN LISTS MTM_ARG_PARAMS)
-		list (APPEND explicit_param_args "--param=${param_arg}")
-	endforeach ()
+		set (
+			plugalyzer_args
+			"--plugin=${plugin_artefact}"
+			--overwrite
+			${input_audio_args} ${midi_input_arg}
+			${blocksize_arg} ${samplerate_arg}
+			${explicit_param_args} ${param_file_arg}
+		)
 
-	set (
-		plugalyzer_args
-		"--plugin=${plugin_artefact}"
-		--overwrite
-		${input_audio_args} ${midi_input_arg}
-		${blocksize_arg} ${samplerate_arg}
-		${explicit_param_args} ${param_file_arg}
-	)
+		list (JOIN plugalyzer_args " " cmd_line)
+		message (TRACE "plugalyzer command line: ${cmd_line}")
+	endblock()
 
 	# create render test
 
@@ -310,7 +323,11 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	set (generated_audio "${base_dir}/${filename}${extension}")
 
+	message (TRACE "Generated audio path: ${generated_audio}")
+
 	set (process_test "${MTM_ARG_TEST_PREFIX}Render")
+
+	message (TRACE "Render test name: ${process_test}")
 
 	add_test (
 		NAME "${process_test}"
@@ -337,6 +354,8 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	set (diff_test "${MTM_ARG_TEST_PREFIX}Diff")
 
+	message (TRACE "Diff test name: ${diff_test}")
+
 	if (NOT MTM_ARG_RMS_THRESH)
 		if(MTM_ARG_EXACT)
 			set (MTM_ARG_RMS_THRESH 0.0)
@@ -344,6 +363,8 @@ function (add_plugin_cancellation_test pluginTarget)
 			set (MTM_ARG_RMS_THRESH 0.005)
 		endif()
 	endif ()
+
+	message (VERBOSE "RMS threshold: ${MTM_ARG_RMS_THRESH}")
 
 	add_test (NAME "${diff_test}"
 			  COMMAND cancellation::audio_diff
@@ -397,7 +418,9 @@ function (add_plugin_cancellation_test pluginTarget)
 			TARGET "${MTM_ARG_REGEN_TARGET}" APPEND PROPERTY LABELS Cancellation
 		)
 
-		message (VERBOSE "Added cancellation regeneration target ${MTM_ARG_REGEN_TARGET}")
+		message (VERBOSE "Created cancellation regeneration target ${MTM_ARG_REGEN_TARGET}")
+	else()
+		message (VERBOSE "Using cancellation regeneration target ${MTM_ARG_REGEN_TARGET}")
 	endif()
 
 	set (update_reference_output "${MTM_ARG_TEST_PREFIX}${filename}_regenerate")
@@ -414,7 +437,7 @@ function (add_plugin_cancellation_test pluginTarget)
 			"${PLUGALYZER_PROGRAM}" process ${plugalyzer_args}
 			"--output=${MTM_ARG_REFERENCE_AUDIO}"
 		DEPENDS "${pluginTarget}" ${input_audio_files} ${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE} ${data_depend}
-		COMMENT "Regenerating reference audio file '${filename}' for plugin cancellation test ${MTM_ARG_TEST_PREFIX}..."
+		COMMENT "Regenerating reference audio file ${filename}${extension} for plugin cancellation test ${MTM_ARG_TEST_PREFIX}..."
 		VERBATIM COMMAND_EXPAND_LISTS
 	)
 
@@ -424,7 +447,7 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	message (VERBOSE 
 		"Added reference file regeneration command for plugin cancellation test ${MTM_ARG_TEST_PREFIX}"
-		" - file ${filename} (regeneration target name: ${MTM_ARG_REGEN_TARGET})"
+		" - file ${filename} - regeneration target name: ${MTM_ARG_REGEN_TARGET}"
 	)
 
 endfunction ()
