@@ -42,32 +42,6 @@ define_property (
 		"All cancellation tests in this directory will be enabled only for the build configurations listed in this property."
 )
 
-macro(__pct_replace_tokens variable)
-	get_target_property (__format_string "${pluginTarget}" JUCE_TARGET_KIND_STRING)
-	string (REPLACE "<FORMAT>" "${__format_string}" "${variable}" "${${variable}}")
-endmacro()
-
-macro(__pct_resolve_var_path variable)
-	__pct_replace_tokens ("${variable}")
-
-	if(MTM_ARG_EXTERNAL_DATA_TARGET)
-		string (FIND "${${variable}}" "DATA{" __data_found)
-
-		if("${__data_found}" GREATER -1)
-			ExternalData_Expand_Arguments (
-				"${MTM_ARG_EXTERNAL_DATA_TARGET}"
-				"${variable}" "${${variable}}"
-			)
-		else()
-			cmake_path (ABSOLUTE_PATH "${variable}" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-		endif()
-	else()
-		cmake_path (ABSOLUTE_PATH "${variable}" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-	endif()
-
-	message (TRACE "Path variable ${variable} resolved to ${${variable}}")
-endmacro()
-
 #[[
 	add_plugin_cancellation_test (
 		<pluginTarget>
@@ -176,8 +150,6 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	get_target_property (plugin_artefact "${pluginTarget}" JUCE_PLUGIN_ARTEFACT_FILE)
 
-	#[[ ----------------------------------------------------------------------------------------------------------- ]]
-
 	list (APPEND CMAKE_MESSAGE_CONTEXT "ArgumentParsingAndValidating")
 
 	set (options
@@ -262,7 +234,8 @@ function (add_plugin_cancellation_test pluginTarget)
 		if(MTM_ARG_OUTPUT_DIR)
 			cmake_path (ABSOLUTE_PATH MTM_ARG_OUTPUT_DIR BASE_DIRECTORY "${CMAKE_CURRENT_BINARY_DIR}")
 		else()
-			set (MTM_ARG_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cancellation-generated")
+			get_target_property (format_string "${pluginTarget}" JUCE_TARGET_KIND_STRING)
+			set (MTM_ARG_OUTPUT_DIR "${CMAKE_CURRENT_BINARY_DIR}/cancellation-generated/${format_string}")
 		endif()
 	endif()
 
@@ -298,51 +271,104 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	list (POP_BACK CMAKE_MESSAGE_CONTEXT)
 
-	#[[ ----------------------------------------------------------------------------------------------------------- ]]
+	__pct_create_setup_test (setup_test)
 
-	# dummy set up test to create output directory
-	block (PROPAGATE setup_test)
-		list (APPEND CMAKE_MESSAGE_CONTEXT "CreateSetupTest")
+	__pct_create_plugalyzer_command_line()
 
-		# the setup test is named for the output directory and does not include the test prefix so
-		# that multiple cancellation tests using the same output directory can share one setup test
-		string (MD5 base_dir_hash "${base_dir}")
-		set (setup_test "Cancellation.Prepare.${base_dir_hash}")
+	cmake_path (GET MTM_ARG_REFERENCE_AUDIO EXTENSION extension)
 
-		if(NOT TEST "${setup_test}")
-			add_test (
-				NAME "${setup_test}"
-				COMMAND "${CMAKE_COMMAND}" -E make_directory "${base_dir}"
-				COMMAND_EXPAND_LISTS
-				${test_config_args}
+	set (generated_audio "${base_dir}/${filename}${extension}")
+
+	set_property (DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${generated_audio}")
+
+	message (DEBUG "Generated audio path: ${generated_audio}")
+
+	__pct_create_render_test (process_test)
+
+	__pct_create_diff_test (diff_test)
+
+	if(MTM_ARG_TEST_NAMES_OUT)
+		set ("${MTM_ARG_TEST_NAMES_OUT}" "${process_test};${diff_test}" PARENT_SCOPE)
+	endif()
+
+	message (VERBOSE "Added plugin cancellation test ${MTM_ARG_TEST_PREFIX}")
+
+	__pct_create_regen_command()
+
+endfunction ()
+
+macro(__pct_replace_tokens variable)
+	get_target_property (__format_string "${pluginTarget}" JUCE_TARGET_KIND_STRING)
+	string (REPLACE "<FORMAT>" "${__format_string}" "${variable}" "${${variable}}")
+endmacro()
+
+macro(__pct_resolve_var_path variable)
+	__pct_replace_tokens ("${variable}")
+
+	if(MTM_ARG_EXTERNAL_DATA_TARGET)
+		string (FIND "${${variable}}" "DATA{" __data_found)
+
+		if("${__data_found}" GREATER -1)
+			ExternalData_Expand_Arguments (
+				"${MTM_ARG_EXTERNAL_DATA_TARGET}"
+				"${variable}" "${${variable}}"
 			)
-
-			set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
-			set_property (TEST "${setup_test}" APPEND PROPERTY LABELS Cancellation)
-
-			message (DEBUG "Created setup test to create output directory ${base_dir} (test name ${setup_test})")
-
-			if(MTM_ARG_REGEN_TARGET)
-				cmake_path (GET MTM_ARG_REFERENCE_AUDIO PARENT_PATH reference_dir)
-
-				add_custom_command (
-					OUTPUT "${setup_test}"
-					COMMAND "${CMAKE_COMMAND}" -E make_directory "${reference_dir}"
-					COMMENT "Creating reference files output directory..."
-					VERBATIM COMMAND_EXPAND_LISTS
-				)
-
-				set_source_files_properties ("${setup_test}" PROPERTIES SYMBOLIC ON)
-
-				message (DEBUG "Added command to create regen output directory")
-			endif()
+		else()
+			cmake_path (ABSOLUTE_PATH "${variable}" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
 		endif()
-	endblock()
+	else()
+		cmake_path (ABSOLUTE_PATH "${variable}" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+	endif()
 
-	#[[ ----------------------------------------------------------------------------------------------------------- ]]
+	message (TRACE "Path variable ${variable} resolved to ${${variable}}")
+endmacro()
 
-	# build plugalyzer command line
-	block (PROPAGATE plugalyzer_args MTM_ARG_INPUT_MIDI MTM_ARG_STATE_FILE input_audio_files)
+function(__pct_create_setup_test name_out)
+	list (APPEND CMAKE_MESSAGE_CONTEXT "CreateSetupTest")
+
+	# the setup test is named for the output directory and does not include the test prefix so
+	# that multiple cancellation tests using the same output directory can share one setup test
+	string (MD5 base_dir_hash "${base_dir}")
+	set (setup_test "Cancellation.Prepare.${base_dir_hash}")
+
+	set ("${name_out}" "${setup_test}" PARENT_SCOPE)
+
+	if(TEST "${setup_test}")
+		return()
+	endif()
+
+	add_test (
+		NAME "${setup_test}"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${base_dir}"
+		COMMAND_EXPAND_LISTS
+		${test_config_args}
+	)
+
+	set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
+	set_property (TEST "${setup_test}" APPEND PROPERTY LABELS Cancellation)
+
+	message (DEBUG "Created setup test to create output directory ${base_dir} (test name ${setup_test})")
+
+	if(NOT MTM_ARG_REGEN_TARGET)
+		return()
+	endif()
+
+	cmake_path (GET MTM_ARG_REFERENCE_AUDIO PARENT_PATH reference_dir)
+
+	add_custom_command (
+		OUTPUT "${setup_test}"
+		COMMAND "${CMAKE_COMMAND}" -E make_directory "${reference_dir}"
+		COMMENT "Creating reference files output directory..."
+		VERBATIM COMMAND_EXPAND_LISTS
+	)
+
+	set_source_files_properties ("${setup_test}" PROPERTIES SYMBOLIC ON)
+
+	message (DEBUG "Added command to create regen output directory")
+endfunction()
+
+macro(__pct_create_plugalyzer_command_line)
+	block(PROPAGATE plugalyzer_args MTM_ARG_INPUT_MIDI MTM_ARG_STATE_FILE input_audio_files)
 		list (APPEND CMAKE_MESSAGE_CONTEXT "CreatePlugalyzerCommandLine")
 
 		if (MTM_ARG_INPUT_MIDI)
@@ -399,18 +425,10 @@ function (add_plugin_cancellation_test pluginTarget)
 		list (JOIN plugalyzer_args " " cmd_line)
 		message (DEBUG "plugalyzer command line: ${cmd_line}")
 	endblock()
+endmacro()
 
-	#[[ ----------------------------------------------------------------------------------------------------------- ]]
-
-	# create render test
-
+function(__pct_create_render_test name_out)
 	list (APPEND CMAKE_MESSAGE_CONTEXT "CreateRenderTest")
-
-	cmake_path (GET MTM_ARG_REFERENCE_AUDIO EXTENSION extension)
-
-	set (generated_audio "${base_dir}/${filename}${extension}")
-
-	message (DEBUG "Generated audio path: ${generated_audio}")
 
 	set (process_test "${MTM_ARG_TEST_PREFIX}Render")
 
@@ -439,12 +457,10 @@ function (add_plugin_cancellation_test pluginTarget)
 		${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE} ${input_audio_files}
 	)
 
-	list (POP_BACK CMAKE_MESSAGE_CONTEXT)
+	set ("${name_out}" "${process_test}" PARENT_SCOPE)
+endfunction()
 
-	#[[ ----------------------------------------------------------------------------------------------------------- ]]
-
-	# create diff test
-
+function(__pct_create_diff_test name_out)
 	list (APPEND CMAKE_MESSAGE_CONTEXT "CreateDiffTest")
 
 	set (diff_test "${MTM_ARG_TEST_PREFIX}Diff")
@@ -482,20 +498,10 @@ function (add_plugin_cancellation_test pluginTarget)
 		Cancellation "${pluginTarget}"
 	)
 
-	if(MTM_ARG_TEST_NAMES_OUT)
-		set ("${MTM_ARG_TEST_NAMES_OUT}" "${process_test};${diff_test}" PARENT_SCOPE)
-	endif()
+	set ("${name_out}" "${diff_test}" PARENT_SCOPE)
+endfunction()
 
-	set_property (DIRECTORY APPEND PROPERTY ADDITIONAL_CLEAN_FILES "${generated_audio}")
-
-	message (VERBOSE "Added plugin cancellation test ${MTM_ARG_TEST_PREFIX}")
-
-	list (POP_BACK CMAKE_MESSAGE_CONTEXT)
-
-	#[[ ----------------------------------------------------------------------------------------------------------- ]]
-
-	# create regen command
-
+function(__pct_create_regen_command)
 	# TODO: regen command currently isn't restricted to the set of configurations specified for the tests
 	# we could wrap this command in a script that checks if the configuration is in that list...
 
@@ -555,5 +561,4 @@ function (add_plugin_cancellation_test pluginTarget)
 		"Added reference file regeneration command for plugin cancellation test ${MTM_ARG_TEST_PREFIX}"
 		" - file ${filename} - regeneration target name: ${MTM_ARG_REGEN_TARGET}"
 	)
-
-endfunction ()
+endfunction()
