@@ -105,9 +105,9 @@ endmacro()
 
 	TEST_PREFIX defines a prefix for the test names, and defaults to <pluginTarget>.Cancellation.<ReferenceFileName>
 
-	REGEN_TARGET can be the name of a regeneration target (later added with add_cancellation_regeneration_target())
-	that will drive regeneration of the reference audio file using the supplied inputs. If not specified, the value of
-	the CANCELLATION_REGEN_TARGET directory property will be used, if set.
+	REGEN_TARGET can be the name of a custom target that will be created to drive regeneration of the reference audio file 
+	using the supplied inputs and parameters. If not specified, the value of the CANCELLATION_REGEN_TARGET directory property 
+	will be used, if set. Multiple reference files can be regenerated using the same custom target. 
 
 	EXTERNAL_DATA_TARGET can be the name of an ExternalData data management target. If EXTERNAL_DATA_TARGET is specified,
 	then you can use ExternalData's DATA{} syntax in the arguments REFERENCE_AUDIO, INPUT_AUDIO, INPUT_MIDI and STATE_FILE.
@@ -170,6 +170,10 @@ function (add_plugin_cancellation_test pluginTarget)
 	unset (options)
 	unset (oneVal)
 	unset (multiVal)
+
+	if(MTM_ARG_TEST_NAMES_OUT)
+		unset ("${MTM_ARG_TEST_NAMES_OUT}" PARENT_SCOPE)
+	endif()
 
 	if (NOT (MTM_ARG_INPUT_AUDIO OR MTM_ARG_INPUT_MIDI))
 		message (FATAL_ERROR "You must specify either INPUT_AUDIO or INPUT_MIDI")
@@ -310,8 +314,7 @@ function (add_plugin_cancellation_test pluginTarget)
 	add_test (
 		NAME "${process_test}"
 		COMMAND
-			"${PLUGALYZER_PROGRAM}" process
-			${plugalyzer_args}
+			"${PLUGALYZER_PROGRAM}" process ${plugalyzer_args}
 			"--output=${generated_audio}"
 	)
 
@@ -378,6 +381,24 @@ function (add_plugin_cancellation_test pluginTarget)
 		endif ()
 	endif ()
 
+	if(NOT TARGET "${MTM_ARG_REGEN_TARGET}")
+		add_custom_target (
+			"${MTM_ARG_REGEN_TARGET}"
+			COMMENT "Finished regenerating cancellation reference audio files"
+			VERBATIM
+		)
+
+		set_target_properties (
+			"${MTM_ARG_REGEN_TARGET}" PROPERTIES FOLDER cancellation-tests/
+		)
+
+		set_property (
+			TARGET "${MTM_ARG_REGEN_TARGET}" APPEND PROPERTY LABELS Cancellation
+		)
+
+		message (VERBOSE "Added cancellation regeneration target ${MTM_ARG_REGEN_TARGET}")
+	endif()
+
 	set (update_reference_output "${MTM_ARG_TEST_PREFIX}${filename}_regenerate")
 
 	if(MTM_ARG_EXTERNAL_DATA_TARGET)
@@ -389,8 +410,7 @@ function (add_plugin_cancellation_test pluginTarget)
 	add_custom_command (
 		OUTPUT "${update_reference_output}"
 		COMMAND
-			"${PLUGALYZER_PROGRAM}" process
-			${plugalyzer_args}
+			"${PLUGALYZER_PROGRAM}" process ${plugalyzer_args}
 			"--output=${MTM_ARG_REFERENCE_AUDIO}"
 		DEPENDS "${pluginTarget}" ${input_audio_files} ${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE} ${data_depend}
 		COMMENT "Regenerating reference audio file '${filename}' for plugin cancellation test ${MTM_ARG_TEST_PREFIX}..."
@@ -399,87 +419,11 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	set_source_files_properties ("${update_reference_output}" PROPERTIES SYMBOLIC ON)
 
-	set (property_name "${MTM_ARG_REGEN_TARGET}_SymbolicRegenOutputs")
-
-	# to silence warnings about writing to undefined properties
-	define_property (
-		DIRECTORY
-		PROPERTY "${property_name}"
-		FULL_DOCS 
-"List of symbolic outputs used to create reference file regeneration custom target ${MTM_ARG_REGEN_TARGET} later in this directory. For internal usage."
-	)
-
-	set_property (
-		DIRECTORY APPEND PROPERTY "${property_name}" "${update_reference_output}"
-	)
+	target_sources ("${MTM_ARG_REGEN_TARGET}" PRIVATE "${update_reference_output}")
 
 	message (VERBOSE 
 		"Added reference file regeneration command for plugin cancellation test ${MTM_ARG_TEST_PREFIX}"
-		" (regeneration target name: ${MTM_ARG_REGEN_TARGET})"
+		" - file ${filename} (regeneration target name: ${MTM_ARG_REGEN_TARGET})"
 	)
-
-endfunction ()
-
-#[[
-	add_cancellation_regeneration_target (<regenerationTarget>)
-
-	Adds a custom target that, when built, will regenerate a set of reference audio files for cancellation tests.
-
-	When you release a new version or tag of your plugin, manually run this target to update the reference files in your
-	source tree. You should then rerun your cancellation tests with the new reference files to verify that everything is
-	still working correctly, and then commit the changed reference files into your source control.
-
-	<regenerationTarget> should be the same name you passed to the REGEN_TARGET argument of add_plugin_cancellation_test()
-	(or set the CANCELLATION_REGEN_TARGET directory property to before calling that function). This function must be called
-	in the same directory as the add_plugin_cancellation_test() calls for the reference files this regeneration target
-	needs to regenerate.
-]]
-function (add_cancellation_regeneration_target regenerationTarget)
-
-	if (NOT PLUGALYZER_PROGRAM)
-		return ()
-	endif ()
-
-	list (APPEND CMAKE_MESSAGE_INDENT "  - ${CMAKE_CURRENT_FUNCTION}: ")
-
-	get_directory_property (outputs "${regenerationTarget}_SymbolicRegenOutputs")
-
-	if (NOT outputs)
-		message (
-			WARNING
-				"No reference file outputs found for regeneration target ${regenerationTarget}."
-				" Make sure you've called mtm_add_plugin_cancellation_test() first, and in the same directory as ${CMAKE_CURRENT_FUNCTION}."
-		)
-		return ()
-	endif ()
-
-	foreach(out IN LISTS outputs)
-		get_source_file_property (symbolic "${out}" SYMBOLIC)
-		if(NOT symbolic)
-			message (AUTHOR_WARNING 
-"Symbolic output '${out}' is not marked SYMBOLIC. Either an internal error occurred, or there is a duplicate custom command output with the same name in this directory."
-			)
-		endif()
-	endforeach()
-
-	add_custom_target (
-		"${regenerationTarget}"
-		DEPENDS ${outputs}
-		COMMENT "Regenerating cancellation test reference audio files..."
-		VERBATIM
-	)
-
-	set_target_properties (
-		"${regenerationTarget}" PROPERTIES
-		FOLDER cancellation-tests/
-	)
-
-	set_property (
-		TARGET "${regenerationTarget}" APPEND 
-		PROPERTY 
-		LABELS Cancellation
-	)
-
-	message (VERBOSE "Added reference file regeneration target ${regenerationTarget}")
 
 endfunction ()

@@ -24,5 +24,3 @@ list (LENGTH test_names len)
 if(NOT "${len}" EQUAL 2)
 	message (FATAL_ERROR "TEST_NAMES_OUT returned a list of length ${len}")
 endif()
-
-add_cancellation_regeneration_target (CancellationTestRegen)

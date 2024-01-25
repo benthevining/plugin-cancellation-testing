@@ -29,8 +29,6 @@ add_plugin_cancellation_test (
 	RMS_THRESH 0.005
 	REGEN_TARGET fooReferenceAudio
 )
-
-add_cancellation_regeneration_target (fooReferenceAudio)
 ```
 
 With the above code, the cancellation tests will be run as normal for regular CMake build / CTest,
