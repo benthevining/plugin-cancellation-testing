@@ -453,6 +453,15 @@ function (add_cancellation_regeneration_target regenerationTarget)
 		return ()
 	endif ()
 
+	foreach(out IN LISTS outputs)
+		get_source_file_property (symbolic "${out}" SYMBOLIC)
+		if(NOT symbolic)
+			message (AUTHOR_WARNING 
+"Symbolic output '${out}' is not marked SYMBOLIC. Either an internal error occurred, or there is a duplicate custom command output with the same name in this directory."
+			)
+		endif()
+	endforeach()
+
 	add_custom_target (
 		"${regenerationTarget}"
 		DEPENDS ${outputs}
