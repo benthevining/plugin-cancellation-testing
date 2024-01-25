@@ -32,6 +32,23 @@ define_property (
 		"All cancellation tests in this directory will use the named ExternalData target for resolving DATA{} references in input arguments."
 )
 
+macro(__pct_resolve_var_path variable)
+	if(MTM_ARG_EXTERNAL_DATA_TARGET)
+		string (FIND "${${variable}}" "DATA{" __data_found)
+
+		if("${__data_found}" GREATER -1)
+			ExternalData_Expand_Arguments (
+				"${MTM_ARG_EXTERNAL_DATA_TARGET}"
+				"${variable}" "${${variable}}"
+			)
+		else()
+			cmake_path (ABSOLUTE_PATH "${variable}" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+		endif()
+	else()
+		cmake_path (ABSOLUTE_PATH "${variable}" BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+	endif()
+endmacro()
+
 #[[
 	add_plugin_cancellation_test (
 		<pluginTarget>
@@ -110,13 +127,15 @@ function (add_plugin_cancellation_test pluginTarget)
 		message (FATAL_ERROR "Plugin target '${pluginTarget}' does not exist!")
 	endif ()
 
-	get_target_property (plugin_artefact "${pluginTarget}" JUCE_PLUGIN_ARTEFACT_FILE)
+	get_property (is_set TARGET "${pluginTarget}" PROPERTY JUCE_PLUGIN_ARTEFACT_FILE SET)
 
-	if(NOT plugin_artefact)
+	if(NOT is_set)
 		message (FATAL_ERROR 
 			"JUCE_PLUGIN_ARTEFACT_FILE not defined for target ${pluginTarget}. Is it an audio plugin created with juce_add_plugin?"
 		)
 	endif()
+
+	get_target_property (plugin_artefact "${pluginTarget}" JUCE_PLUGIN_ARTEFACT_FILE)
 
 	# argument parsing & validating
 
@@ -168,6 +187,10 @@ function (add_plugin_cancellation_test pluginTarget)
 		message (FATAL_ERROR "SAMPLERATE and INPUT_AUDIO cannot both be specified")
 	endif()
 
+	if(MTM_ARG_UNPARSED_ARGUMENTS)
+		message (AUTHOR_WARNING "Ignoring unkown arguments: ${MTM_ARG_UNPARSED_ARGUMENTS}")
+	endif()
+
 	if (NOT PLUGALYZER_PROGRAM)
 		message (VERBOSE 
 			"Cannot create cancellation tests because Plugalyzer was not found. Set PLUGALYZER_PROGRAM to its path."
@@ -195,14 +218,7 @@ function (add_plugin_cancellation_test pluginTarget)
 		endif()
 	endif()
 
-	if(MTM_ARG_EXTERNAL_DATA_TARGET)
-		ExternalData_Expand_Arguments (
-			"${MTM_ARG_EXTERNAL_DATA_TARGET}" 
-			MTM_ARG_REFERENCE_AUDIO "${MTM_ARG_REFERENCE_AUDIO}"
-		)
-	endif()
-
-	cmake_path (ABSOLUTE_PATH MTM_ARG_REFERENCE_AUDIO BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+	__pct_resolve_var_path (MTM_ARG_REFERENCE_AUDIO)
 
 	cmake_path (GET MTM_ARG_REFERENCE_AUDIO STEM filename)
 
@@ -231,83 +247,57 @@ function (add_plugin_cancellation_test pluginTarget)
 	endblock()
 
 	# build plugalyzer command line
-	block (PROPAGATE plugalyzer_args input_audio_files)
 
-		if (MTM_ARG_INPUT_MIDI)
-			if(MTM_ARG_EXTERNAL_DATA_TARGET)
-				ExternalData_Expand_Arguments (
-					"${MTM_ARG_EXTERNAL_DATA_TARGET}"
-					MTM_ARG_INPUT_MIDI "${MTM_ARG_INPUT_MIDI}"
-				)
-			endif()
+	if (MTM_ARG_INPUT_MIDI)
+		__pct_resolve_var_path (MTM_ARG_INPUT_MIDI)
+		set (midi_input_arg "--midiInput=${MTM_ARG_INPUT_MIDI}")
+	else ()
+		unset (midi_input_arg)
+	endif ()
 
-			cmake_path (ABSOLUTE_PATH MTM_ARG_INPUT_MIDI BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+	if (MTM_ARG_STATE_FILE)
+		__pct_resolve_var_path (MTM_ARG_STATE_FILE)
+		set (param_file_arg "--paramFile=${MTM_ARG_STATE_FILE}")
+	else ()
+		unset (param_file_arg)
+	endif ()
 
-			set (midi_input_arg "--midiInput=${MTM_ARG_INPUT_MIDI}")
-		else ()
-			unset (midi_input_arg)
-		endif ()
+	if (MTM_ARG_BLOCKSIZE)
+		set (blocksize_arg "--blockSize=${MTM_ARG_BLOCKSIZE}")
+	else ()
+		unset (blocksize_arg)
+	endif ()
 
-		if (MTM_ARG_STATE_FILE)
-			if(MTM_ARG_EXTERNAL_DATA_TARGET)
-				ExternalData_Expand_Arguments (
-					"${MTM_ARG_EXTERNAL_DATA_TARGET}"
-					MTM_ARG_STATE_FILE "${MTM_ARG_STATE_FILE}"
-				)
-			endif()
+	if(MTM_ARG_SAMPLERATE)
+		set (samplerate_arg "--sampleRate=${MTM_ARG_SAMPLERATE}")
+	else()
+		unset (samplerate_arg)
+	endif()
 
-			cmake_path (ABSOLUTE_PATH MTM_ARG_STATE_FILE BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
+	unset (input_audio_args)
+	unset (input_audio_files)
 
-			set (param_file_arg "--paramFile=${MTM_ARG_STATE_FILE}")
-		else ()
-			unset (param_file_arg)
-		endif ()
+	foreach(input IN LISTS MTM_ARG_INPUT_AUDIO)
+		__pct_resolve_var_path (input)
 
-		if (MTM_ARG_BLOCKSIZE)
-			set (blocksize_arg "--blockSize=${MTM_ARG_BLOCKSIZE}")
-		else ()
-			unset (blocksize_arg)
-		endif ()
+		list (APPEND input_audio_args "--input=${input}")
+		list (APPEND input_audio_files "${input}")
+	endforeach()
 
-		if(MTM_ARG_SAMPLERATE)
-			set (samplerate_arg "--sampleRate=${MTM_ARG_SAMPLERATE}")
-		else()
-			unset (samplerate_arg)
-		endif()
+	unset (explicit_param_args)
 
-		unset (input_audio_args)
-		unset (input_audio_files)
+	foreach (param_arg IN LISTS MTM_ARG_PARAMS)
+		list (APPEND explicit_param_args "--param=${param_arg}")
+	endforeach ()
 
-		foreach(input IN LISTS MTM_ARG_INPUT_AUDIO)
-			if(MTM_ARG_EXTERNAL_DATA_TARGET)
-				ExternalData_Expand_Arguments (
-					"${MTM_ARG_EXTERNAL_DATA_TARGET}"
-					input "${input}"
-				)
-			endif()
-
-			cmake_path (ABSOLUTE_PATH input BASE_DIRECTORY "${CMAKE_CURRENT_SOURCE_DIR}")
-
-			list (APPEND input_audio_args "--input=${input}")
-			list (APPEND input_audio_files "${input}")
-		endforeach()
-
-		unset (explicit_param_args)
-
-		foreach (param_arg IN LISTS MTM_ARG_PARAMS)
-			list (APPEND explicit_param_args "--param=${param_arg}")
-		endforeach ()
-
-		set (
-			plugalyzer_args
-			"--plugin=${plugin_artefact}"
-			--overwrite
-			${input_audio_args} ${midi_input_arg}
-			${blocksize_arg} ${samplerate_arg}
-			${explicit_param_args} ${param_file_arg}
-		)
-
-	endblock()
+	set (
+		plugalyzer_args
+		"--plugin=${plugin_artefact}"
+		--overwrite
+		${input_audio_args} ${midi_input_arg}
+		${blocksize_arg} ${samplerate_arg}
+		${explicit_param_args} ${param_file_arg}
+	)
 
 	# create render test
 
@@ -364,7 +354,11 @@ function (add_plugin_cancellation_test pluginTarget)
 			ATTACHED_FILES "${MTM_ARG_REFERENCE_AUDIO};${generated_audio}"
 	)
 
-	set_property (TEST "${process_test}" "${diff_test}" APPEND PROPERTY LABELS Cancellation)
+	set_property (
+		TEST "${process_test}" "${diff_test}" 
+		APPEND PROPERTY LABELS 
+		Cancellation "${pluginTarget}"
+	)
 
 	if(MTM_ARG_TEST_NAMES_OUT)
 		set ("${MTM_ARG_TEST_NAMES_OUT}" "${process_test};${diff_test}" PARENT_SCOPE)
@@ -464,6 +458,17 @@ function (add_cancellation_regeneration_target regenerationTarget)
 		DEPENDS ${outputs}
 		COMMENT "Regenerating cancellation test reference audio files..."
 		VERBATIM
+	)
+
+	set_target_properties (
+		"${regenerationTarget}" PROPERTIES
+		FOLDER cancellation-tests/
+	)
+
+	set_property (
+		TARGET "${regenerationTarget}" APPEND 
+		PROPERTY 
+		LABELS Cancellation
 	)
 
 	message (VERBOSE "Added reference file regeneration target ${regenerationTarget}")
