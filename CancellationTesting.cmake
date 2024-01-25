@@ -1,9 +1,10 @@
-
-# Idea: a function like mtm_auto_cancellation_test that would discover what files are in a directory
-
 include_guard (GLOBAL)
 
+cmake_minimum_required (VERSION 3.27.0 FATAL_ERROR)
+
 find_program (PLUGALYZER_PROGRAM plugalyzer DOC "Plugalyzer executable")
+
+message (DEBUG "plugalyzer path: ${PLUGALYZER_PROGRAM}")
 
 define_property (
 	DIRECTORY
@@ -121,10 +122,19 @@ endmacro()
 
 	Relative paths for all input variables are evaluated relative to CMAKE_CURRENT_SOURCE_DIR, except for OUTPUT_DIR,
 	which is evaluated relative to CMAKE_CURRENT_BINARY_DIR.
+
+	Directory properties:
+		- CANCELLATION_REGEN_TARGET
+		- CANCELLATION_OUTPUT_DIR
+		- CANCELLATION_EXTERNAL_DATA_TARGET
+
+	Cache variables:
+		- PLUGALYZER_PROGRAM
 ]]
 function (add_plugin_cancellation_test pluginTarget)
 
 	list (APPEND CMAKE_MESSAGE_INDENT "  - ${CMAKE_CURRENT_FUNCTION}: ")
+	list (APPEND CMAKE_MESSAGE_CONTEXT "${CMAKE_CURRENT_FUNCTION}")
 
 	if (NOT TARGET "${pluginTarget}")
 		message (FATAL_ERROR "Plugin target '${pluginTarget}' does not exist!")
@@ -140,7 +150,9 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	get_target_property (plugin_artefact "${pluginTarget}" JUCE_PLUGIN_ARTEFACT_FILE)
 
-	# argument parsing & validating
+	#[[ ----------------------------------------------------------------------------------------------------------- ]]
+
+	list (APPEND CMAKE_MESSAGE_CONTEXT "ArgumentParsingAndValidating")
 
 	set (options
 		EXACT
@@ -236,12 +248,16 @@ function (add_plugin_cancellation_test pluginTarget)
 		set (MTM_ARG_TEST_PREFIX "${pluginTarget}.Cancellation.${filename}.")
 	endif ()
 
-	message (TRACE "Test prefix: ${MTM_ARG_TEST_PREFIX}")
-
 	set (base_dir "${MTM_ARG_OUTPUT_DIR}/$<CONFIG>")
+
+	list (POP_BACK CMAKE_MESSAGE_CONTEXT)
+
+	#[[ ----------------------------------------------------------------------------------------------------------- ]]
 
 	# dummy set up test to create output directory
 	block (PROPAGATE setup_test)
+		list (APPEND CMAKE_MESSAGE_CONTEXT "CreateSetupTest")
+
 		# the setup test is named for the output directory and does not include the test prefix so
 		# that multiple cancellation tests using the same output directory can share one setup test
 		string (MD5 base_dir_hash "${base_dir}")
@@ -256,12 +272,16 @@ function (add_plugin_cancellation_test pluginTarget)
 			set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
 			set_property (TEST "${setup_test}" APPEND PROPERTY LABELS Cancellation)
 
-			message (TRACE "Created setup test to create output directory ${base_dir} (test name ${setup_test})")
+			message (DEBUG "Created setup test to create output directory ${base_dir} (test name ${setup_test})")
 		endif()
 	endblock()
 
+	#[[ ----------------------------------------------------------------------------------------------------------- ]]
+
 	# build plugalyzer command line
 	block (PROPAGATE plugalyzer_args MTM_ARG_INPUT_MIDI MTM_ARG_STATE_FILE input_audio_files)
+		list (APPEND CMAKE_MESSAGE_CONTEXT "CreatePlugalyzerCommandLine")
+
 		if (MTM_ARG_INPUT_MIDI)
 			__pct_resolve_var_path (MTM_ARG_INPUT_MIDI)
 			set (midi_input_arg "--midiInput=${MTM_ARG_INPUT_MIDI}")
@@ -314,20 +334,24 @@ function (add_plugin_cancellation_test pluginTarget)
 		)
 
 		list (JOIN plugalyzer_args " " cmd_line)
-		message (TRACE "plugalyzer command line: ${cmd_line}")
+		message (DEBUG "plugalyzer command line: ${cmd_line}")
 	endblock()
 
+	#[[ ----------------------------------------------------------------------------------------------------------- ]]
+
 	# create render test
+
+	list (APPEND CMAKE_MESSAGE_CONTEXT "CreateRenderTest")
 
 	cmake_path (GET MTM_ARG_REFERENCE_AUDIO EXTENSION extension)
 
 	set (generated_audio "${base_dir}/${filename}${extension}")
 
-	message (TRACE "Generated audio path: ${generated_audio}")
+	message (DEBUG "Generated audio path: ${generated_audio}")
 
 	set (process_test "${MTM_ARG_TEST_PREFIX}Render")
 
-	message (TRACE "Render test name: ${process_test}")
+	message (DEBUG "Render test name: ${process_test}")
 
 	add_test (
 		NAME "${process_test}"
@@ -350,11 +374,17 @@ function (add_plugin_cancellation_test pluginTarget)
 		${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE} ${input_audio_files}
 	)
 
+	list (POP_BACK CMAKE_MESSAGE_CONTEXT)
+
+	#[[ ----------------------------------------------------------------------------------------------------------- ]]
+
 	# create diff test
+
+	list (APPEND CMAKE_MESSAGE_CONTEXT "CreateDiffTest")
 
 	set (diff_test "${MTM_ARG_TEST_PREFIX}Diff")
 
-	message (TRACE "Diff test name: ${diff_test}")
+	message (DEBUG "Diff test name: ${diff_test}")
 
 	if (NOT MTM_ARG_RMS_THRESH)
 		if(MTM_ARG_EXACT)
@@ -364,7 +394,7 @@ function (add_plugin_cancellation_test pluginTarget)
 		endif()
 	endif ()
 
-	message (VERBOSE "RMS threshold: ${MTM_ARG_RMS_THRESH}")
+	message (DEBUG "RMS threshold: ${MTM_ARG_RMS_THRESH}")
 
 	add_test (NAME "${diff_test}"
 			  COMMAND cancellation::audio_diff
@@ -393,7 +423,13 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	message (VERBOSE "Added plugin cancellation test ${MTM_ARG_TEST_PREFIX}")
 
+	list (POP_BACK CMAKE_MESSAGE_CONTEXT)
+
+	#[[ ----------------------------------------------------------------------------------------------------------- ]]
+
 	# create regen command
+
+	list (APPEND CMAKE_MESSAGE_CONTEXT "CreateRegenCommand")
 
 	if (NOT MTM_ARG_REGEN_TARGET)
 		get_directory_property (MTM_ARG_REGEN_TARGET CANCELLATION_REGEN_TARGET)
@@ -437,6 +473,7 @@ function (add_plugin_cancellation_test pluginTarget)
 			"${PLUGALYZER_PROGRAM}" process ${plugalyzer_args}
 			"--output=${MTM_ARG_REFERENCE_AUDIO}"
 		DEPENDS "${pluginTarget}" ${input_audio_files} ${MTM_ARG_INPUT_MIDI} ${MTM_ARG_STATE_FILE} ${data_depend}
+		DEPENDS_EXPLICIT_ONLY
 		COMMENT "Regenerating reference audio file ${filename}${extension} for plugin cancellation test ${MTM_ARG_TEST_PREFIX}..."
 		VERBATIM COMMAND_EXPAND_LISTS
 	)
