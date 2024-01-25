@@ -33,6 +33,15 @@ define_property (
 		"All cancellation tests in this directory will use the named ExternalData target for resolving DATA{} references in input arguments."
 )
 
+define_property (
+	DIRECTORY
+	PROPERTY CANCELLATION_CONFIGS
+	INHERITED
+	BRIEF_DOCS "Build configurations for which to enable cancellation tests in this directory"
+	FULL_DOCS
+		"All cancellation tests in this directory will be enabled only for the build configurations listed in this property."
+)
+
 macro(__pct_resolve_var_path variable)
 	if(MTM_ARG_EXTERNAL_DATA_TARGET)
 		string (FIND "${${variable}}" "DATA{" __data_found)
@@ -67,6 +76,7 @@ endmacro()
 		[TEST_PREFIX <prefix>]
 		[REGEN_TARGET <target>]
 		[EXTERNAL_DATA_TARGET <target>]
+		[CONFIGS <config>...]
 		[TEST_NAMES_OUT <variable>]
 	)
 
@@ -117,6 +127,10 @@ endmacro()
 	If not specified, defaults to the value of the CANCELLATION_EXTERNAL_DATA_TARGET directory property, if set. Has no effect
 	if no DATA{} references are found in the input arguments.
 
+	CONFIGS can be a list of build configurations for which to enable the cancellation tests. If not specified, then if the
+	CANCELLATION_CONFIGS directory property is set, its value will be used; otherwise, all build configurations will be
+	enabled by default. One usage of this feature would be to enable cancellation tests for only the Release configuration.
+
 	TEST_NAMES_OUT can name a variable that will be populated in the calling scope with the names of the generated tests.
 	This will be a list of 2 values, since each cancellation test is implemented using a render command and a diff command.
 
@@ -127,6 +141,7 @@ endmacro()
 		- CANCELLATION_REGEN_TARGET
 		- CANCELLATION_OUTPUT_DIR
 		- CANCELLATION_EXTERNAL_DATA_TARGET
+		- CANCELLATION_CONFIGS
 
 	Cache variables:
 		- PLUGALYZER_PROGRAM
@@ -178,6 +193,7 @@ function (add_plugin_cancellation_test pluginTarget)
 		multiVal
 		INPUT_AUDIO
 		PARAMS
+		CONFIGS
 	)
 
 	cmake_parse_arguments (MTM_ARG "${options}" "${oneVal}" "${multiVal}" ${ARGN})
@@ -240,6 +256,20 @@ function (add_plugin_cancellation_test pluginTarget)
 
 	message (VERBOSE "Output directory: ${MTM_ARG_OUTPUT_DIR}")
 
+	if(NOT MTM_ARG_CONFIGS)
+		get_directory_property (MTM_ARG_CONFIGS CANCELLATION_CONFIGS)
+	endif()
+
+	if(MTM_ARG_CONFIGS)
+		set (test_config_args CONFIGURATIONS ${MTM_ARG_CONFIGS})
+
+		list (JOIN MTM_ARG_CONFIGS " " config_list)
+		message (VERBOSE "Restricting tests to build configurations: ${config_list}")
+		unset (config_list)
+	else()
+		unset (test_config_args)
+	endif()
+
 	__pct_resolve_var_path (MTM_ARG_REFERENCE_AUDIO)
 
 	cmake_path (GET MTM_ARG_REFERENCE_AUDIO STEM filename)
@@ -267,6 +297,7 @@ function (add_plugin_cancellation_test pluginTarget)
 			add_test (
 				NAME "${setup_test}"
 				COMMAND "${CMAKE_COMMAND}" -E make_directory "${base_dir}"
+				${test_config_args}
 			)
 
 			set_tests_properties ("${setup_test}" PROPERTIES FIXTURES_SETUP "${setup_test}")
@@ -358,6 +389,7 @@ function (add_plugin_cancellation_test pluginTarget)
 		COMMAND
 			"${PLUGALYZER_PROGRAM}" process ${plugalyzer_args}
 			"--output=${generated_audio}"
+		${test_config_args}
 	)
 
 	set_tests_properties (
@@ -399,6 +431,7 @@ function (add_plugin_cancellation_test pluginTarget)
 	add_test (NAME "${diff_test}"
 			  COMMAND cancellation::audio_diff
 					  "${MTM_ARG_REFERENCE_AUDIO}" "${generated_audio}" "${MTM_ARG_RMS_THRESH}"
+			  ${test_config_args}
 	)
 
 	set_tests_properties (
@@ -428,6 +461,9 @@ function (add_plugin_cancellation_test pluginTarget)
 	#[[ ----------------------------------------------------------------------------------------------------------- ]]
 
 	# create regen command
+
+	# TODO: regen command currently isn't restricted to the set of configurations specified for the tests
+	# we could wrap this command in a script that checks if the configuration is in that list...
 
 	list (APPEND CMAKE_MESSAGE_CONTEXT "CreateRegenCommand")
 

@@ -1,0 +1,30 @@
+{
+	"parse": {
+		"additional_commands": {
+			"add_plugin_cancellation_test": {
+				"pargs": {
+					"nargs": 1
+				},
+				"flags": [
+					"EXACT"
+				],
+				"kwargs": {
+					"REFERENCE_AUDIO": 1,
+					"INPUT_AUDIO": "+",
+					"INPUT_MIDI": 1,
+					"RMS_THRESH": 1,
+					"STATE_FILE": 1,
+					"PARAMS": "+",
+					"BLOCKSIZE": 1,
+					"SAMPLERATE": 1,
+					"OUTPUT_DIR": 1,
+					"TEST_PREFIX": 1,
+					"REGEN_TARGET": 1,
+					"EXTERNAL_DATA_TARGET": 1,
+					"CONFIGS": "+",
+					"TEST_NAMES_OUT": 1
+				}
+			}
+		}
+	}
+}
